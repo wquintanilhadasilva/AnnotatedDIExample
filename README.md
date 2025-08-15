@@ -1,159 +1,208 @@
-# Annotated Dependency Injection Framework
+# 🔧 Annotated Dependency Injection for .NET
 
-A lightweight attribute-based Dependency Injection (DI) framework for .NET, inspired by Spring Boot annotations.
-
-## Features
-
-- **@Service**: Marks a class as a service component for DI registration.
-- **@Repository**: Marks a class as a repository component for DI registration.
-- **@Configuration**: Marks a class that contains bean creation methods.
-- **@Bean**: Marks a method inside a configuration class for creating custom beans.
-- **@Profile**: Conditional registration based on active environment profiles.
-- **@ConditionalOnProperty**: Conditional registration based on configuration properties.
-- Dependency graph resolution and ordering to ensure proper instantiation.
-- Supports injection of multiple implementations via `IEnumerable<T>`.
+This project provides a lightweight annotation-based system for automatic service registration and configuration in ASP.NET Core (inspired by Spring Boot).
 
 ---
 
-## Minimal Example
+## ✨ Features
 
-### Service
-```csharp
-[Service]
-public class MyService : IMyService
-{
-    public void Execute() => Console.WriteLine("MyService active!");
-}
-```
-
-### Repository
-```csharp
-[Repository]
-public class MyRepository : IMyRepository
-{
-    public void Save() => Console.WriteLine("Repository active!");
-}
-```
-
-### Program
-```csharp
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.ScanWithAnnotatedDI(builder.Configuration, "MyAppNamespace");
-var app = builder.Build();
-app.Run();
-```
+- `[Service]`: Registers a class as a singleton, scoped, or transient service.
+- `[Configuration]`: Registers a class as a configuration class.
+- `[Bean]`: Registers the method return as a service (bean), with dependencies auto-injected.
+- `[Profile]`: Loads the bean only for matching profiles.
+- `[ConditionalOnProperty]`: Loads the bean only if a config key matches a value.
+- `[ComponentScan]`: Restrict scanning to specific namespaces or exclude others.
+- Auto constructor injection (including `IEnumerable<T>`).
+- Supports profile-based filtering using configuration (e.g. `appsettings.json`).
+- Supports override or manual registration without conflict.
 
 ---
 
-## Advanced Example
+## 🛠️ Installation
 
-### Conditional Service with Profile and Repository
+1. Copy the source files to your solution.
+2. Add reference to the assembly where needed.
+3. Call `RegisterAnnotatedServices()` in `Program.cs`.
+
+---
+
+## 🚀 Quickstart
+
 ```csharp
-[Service]
-[Profile(include: "dev", exclude: "prod")]
-public class MyService : IMyService
-{
-    private readonly IMyRepository repository;
+builder.Services.RegisterAnnotatedServices(
+    configuration: builder.Configuration,
+    profilePropertyKey: "app.profiles"
+);
+```
 
-    public MyService(IMyRepository repository)
-    {
-        this.repository = repository;
+To limit or exclude scan paths:
+
+```csharp
+builder.Services.RegisterAnnotatedServices(
+    configuration: builder.Configuration,
+    profilePropertyKey: "app.profiles",
+    componentScan: new ComponentScanOptions {
+        Include = new[] { typeof(SomeNamespace.MyMarkerClass) },
+        Exclude = new[] { typeof(OtherNamespace.ShouldBeIgnored) }
     }
-
-    public void Execute() => Console.WriteLine("MyService active!");
-}
-
-[Repository]
-[ConditionalOnProperty(name: "Features:EnableRepository", havingValue: "true")]
-public class MyRepository : IMyRepository
-{
-    public void Save() => Console.WriteLine("Repository active!");
-}
+);
 ```
 
-### Configuration with Beans
+---
+
+## 🔍 Attribute Reference
+
+### `[Service]`
+
+Registers a service with the desired lifetime.
+
+```csharp
+[Service(ServiceLifetime.Scoped)]
+public class EmailService : IEmailService {}
+```
+
+If no lifetime is specified, `Transient` is used by default.
+
+---
+
+### `[Configuration]` + `[Bean]`
+
+Creates bean-producing configuration classes.
+
 ```csharp
 [Configuration]
-public class MyConfiguration
-{
-    [Bean]
-    public ICustomBean CreateCustomBean()
-    {
-        return new CustomBean();
-    }
-}
+public class AppConfig {
 
-public class CustomBean : ICustomBean
-{
-    public void DoSomething() => Console.WriteLine("Custom bean working!");
+    [Bean]
+    public IStrategy ProvideStrategy(IServiceA a, IServiceB b) {
+        return new StrategyImpl(a, b);
+    }
 }
 ```
 
-### Multiple Implementations Injection
+---
+
+### `[ConditionalOnProperty]`
+
+Conditional bean registration based on `IConfiguration`.
+
 ```csharp
 [Service]
-public class FirstHandler : IHandler
-{
-    public void Handle() => Console.WriteLine("First handler");
-}
-
-[Service]
-public class SecondHandler : IHandler
-{
-    public void Handle() => Console.WriteLine("Second handler");
-}
-
-[Service]
-public class HandlerManager
-{
-    private readonly IEnumerable<IHandler> handlers;
-
-    public HandlerManager(IEnumerable<IHandler> handlers)
-    {
-        this.handlers = handlers;
-    }
-
-    public void RunAll()
-    {
-        foreach (var handler in handlers)
-            handler.Handle();
-    }
-}
+[ConditionalOnProperty("app.featureX.enabled", havingValue: "true", matchIfMissing: false)]
+public class FeatureXService : IFeature {}
 ```
 
 ---
 
-## Rules
+### `[Profile]`
 
-1. **Service / Repository Registration**  
-   - Registers the first implemented interface in DI.
-   - All implementations are instantiated.
-   - If `IEnumerable<T>` is injected, all implementations are provided.
+Only registers if current profile matches.
 
-2. **Configuration and Beans**  
-   - `@Configuration` classes are instantiated without DI injection.
-   - `@Bean` methods are executed after service/repository creation.
-   - Beans can depend on any registered service/repository.
+```csharp
+[Service]
+[Profile(include: new[] { "prod", "stage" }, exclude: new[] { "dev" })]
+public class RealEmailSender : IEmailSender {}
+```
 
-3. **Dependency Graph**  
-   - All dependencies are resolved and instantiated in topological order.
-   - Cyclic dependencies cause an error with detailed information.
+Set profile in `appsettings.json`:
 
----
-
-## Example Settings
 ```json
 {
-  "Features": {
-    "EnableRepository": "true"
-  },
-  "Profiles": "dev"
+  "app": {
+    "profiles": "prod"
+  }
+}
+```
+
+Then use it like:
+
+```csharp
+builder.Services.RegisterAnnotatedServices(
+    builder.Configuration,
+    profilePropertyKey: "app.profiles"
+);
+```
+
+---
+
+### `[ComponentScan]` (Attribute Usage)
+
+Instead of passing `ComponentScanOptions` manually, you can annotate your startup class:
+
+```csharp
+[ComponentScan(
+    Include = new[] { typeof(MyApp.Services.SomeService), typeof(MyApp.Repositories.SomeRepo) },
+    Exclude = new[] { typeof(MyApp.Legacy.OldCode) }
+)]
+public class AppEntryPoint {}
+```
+
+Then in `Program.cs`:
+
+```csharp
+builder.Services.RegisterAnnotatedServices(
+    builder.Configuration,
+    profilePropertyKey: "app.profiles",
+    componentScan: ComponentScanOptions.FromAttribute(typeof(AppEntryPoint))
+);
+```
+
+---
+
+## 🧠 Constructor Injection
+
+Works with single instances or collections:
+
+```csharp
+[Service]
+public class MyController {
+    public MyController(IServiceA a, IEnumerable<IPlugin> plugins) { ... }
 }
 ```
 
 ---
 
-## Bootstrapping
-```csharp
-builder.Services.ScanWithAnnotatedDI(builder.Configuration, "MyAppNamespace");
+## 🧪 Example `appsettings.json`
+
+```json
+{
+  "app": {
+    "profiles": "dev",
+    "featureX": {
+      "enabled": "true"
+    }
+  }
+}
 ```
+
+---
+
+## 📂 Project Structure
+
+```
+/Annotations
+  └── ServiceAttribute.cs
+  └── ConfigurationAttribute.cs
+  └── BeanAttribute.cs
+  └── ConditionalOnPropertyAttribute.cs
+  └── ProfileAttribute.cs
+  └── ComponentScanAttribute.cs
+/Core
+  └── ReflectionUtils.cs
+  └── Scanner.cs
+/Extensions
+  └── ServiceCollectionExtensions.cs
+  └── ComponentScanOptions.cs
+```
+
+---
+
+## 🛡️ License
+
+MIT License
+
+---
+
+## 🤝 Contributing
+
+Pull requests and issues are welcome! Help grow this simple framework and share with the .NET community.
